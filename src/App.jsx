@@ -11,18 +11,16 @@ function App() {
   const flipCoin = async () => {
     if(loading) return; // Prevent double clicks
     setLoading(true)
-    // Reset result temporarily so the coin enters "tossing" mode
     setResult("?") 
     
     try {
       const response = await fetch('http://127.0.0.1:5000/flip')
       const data = await response.json()
       
-      // Add a small artificial delay so the toss animation lasts longer
       setTimeout(() => {
         setResult(data.result)
         setLoading(false)
-      }, 1500) // Wait 1.5 seconds before showing result
+      }, 1500)
 
     } catch (error) {
       console.error("Error:", error)

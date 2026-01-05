@@ -1,72 +1,102 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import { useFrame, useLoader } from "@react-three/fiber";
 import { TextureLoader } from "three/src/loaders/TextureLoader";
 import * as THREE from "three";
 
 const Coin3D = ({ loading, result }) => {
-  // 1. Access the 3D mesh directly to animate it
   const meshRef = useRef();
+  // We use a ref to store the specific "target angle" we want to land on.
+  // This prevents the target from recalculating every single frame.
+  const targetAngleRef = useRef(null);
 
-  // 2. Load Textures (the images you put in /public)
-  // We use array destructuring because useLoader returns an array of results
   const [headsTexture, tailsTexture] = useLoader(TextureLoader, [
     "/head.png",
     "/tail.png",
   ]);
 
-  // 3. Animation Loop (Runs 60 times per second)
+  // Fix textures to ensure they aren't rotated weirdly
+  headsTexture.center.set(0.5, 0.5);
+  tailsTexture.center.set(0.5, 0.5);
+  headsTexture.rotation = Math.PI / 2;
+  tailsTexture.rotation = -Math.PI / 2;
+
+  // Reset the target when we start a new toss
+  useEffect(() => {
+    if (loading) {
+      targetAngleRef.current = null;
+    }
+  }, [loading]);
+
   useFrame((state, delta) => {
-    // delta = time since last frame (ensures smooth animation regardless of FPS)
+    if (!meshRef.current) return;
 
     if (loading) {
-      // --- TOSSING STATE ---
-      // Spin very fast on the X axis (flipping motion)
-      meshRef.current.rotation.x += delta * 5;
-      // Rotate slowly on Z for some wobble
-      meshRef.current.rotation.z += delta * 2;
+      // --- STATE 1: TOSSING (Spinning) ---
+      // Spin fast on X axis
+      meshRef.current.rotation.x += delta * 20; 
+      // Add a slight wobbling on Z for realism
+      meshRef.current.rotation.z = Math.sin(state.clock.elapsedTime * 10) * 0.2;
     } 
     else if (result !== "?") {
-      // --- LANDING STATE ---
-      // Determine target angle: 0 degrees for Heads, 180 degrees (Pi) for Tails
-      const targetRotationX = result === "HEADS" ? 0 : Math.PI;
+      // --- STATE 2: COLLAPSING (Landing) ---
+      
+      // 1. CALCULATE TARGET (Only do this once, the moment we stop loading)
+      if (targetAngleRef.current === null) {
+        const currentRotation = meshRef.current.rotation.x;
+        const fullCircle = Math.PI * 2;
+        
+        // Find how many full spins we've done so far
+        const rounds = Math.ceil(currentRotation / fullCircle);
+        
+        // Calculate the NEXT nearest landing spot
+        // If HEADS: Land on a multiple of 2*PI
+        // If TAILS: Land on a multiple of 2*PI + PI (180 degrees)
+        let nextTarget = rounds * fullCircle;
+        if (result === "TAILS") {
+          nextTarget += Math.PI;
+        }
 
-      // "Lerp" (Linear Interpolation) smoothly moves current rotation towards target rotation
-      // The '0.05' factor controls the landing speed (lower = slower landing)
+        // Ensure the target is always AHEAD of current rotation
+        // (Add an extra spin if we are too close, so it doesn't snap instantly)
+        if (nextTarget < currentRotation + Math.PI * 0.5) {
+          nextTarget += fullCircle;
+        }
+        
+        targetAngleRef.current = nextTarget;
+      }
+
+      // 2. SMOOTHLY DECELERATE TO TARGET
+      // We use 'damp' or 'lerp' to move towards the calculated forward target
+      // 0.1 is the "friction" - lower is heavier/slower, higher is snappier
       meshRef.current.rotation.x = THREE.MathUtils.lerp(
         meshRef.current.rotation.x,
-        targetRotationX,
+        targetAngleRef.current,
         0.05
       );
-       // Smoothly reset Z rotation to 0 so it lies flat
+      
+      // Flatten the wobble (Z-axis) back to 0
       meshRef.current.rotation.z = THREE.MathUtils.lerp(
         meshRef.current.rotation.z,
         0,
-        0.05
-       );
-
-    } else {
-      // --- IDLE STATE (Start) ---
-      // Just a slow, cool-looking spin on the Y axis
-      meshRef.current.rotation.y += delta * 2;
+        0.1
+      );
+    } 
+    else {
+      // --- STATE 3: IDLE (Before first toss) ---
+      meshRef.current.rotation.y += delta * 0.5;
     }
   });
 
   return (
+    // We rotate the container 90deg so the cylinder stands on its edge like a wheel
     <mesh ref={meshRef} rotation={[Math.PI / 2, 0, 0]}>
-      {/* Geometry: A very thin cylinder (looks like a coin).
-         args: [radiusTop, radiusBottom, height, radialSegments]
-      */}
-      <cylinderGeometry args={[2.5, 2.5, 0.3, 64]} />
+      <cylinderGeometry args={[2.5, 2.5, 0.2, 64]} />
       
-      {/* Materials: We need different materials for different faces.
-         A Cylinder has 3 "material slots": [Side, Top, Bottom]
-      */}
-      {/* 1. Side edge (Gold color) */}
       <meshStandardMaterial color={"#ffd700"} metalness={0.8} roughness={0.3} />
-      {/* 2. Top Face (Heads Texture) */}
-      <meshStandardMaterial map={headsTexture} metalness={0.7} roughness={0.1}/>
-      {/* 3. Bottom Face (Tails Texture) */}
-      <meshStandardMaterial map={tailsTexture} metalness={0.7} roughness={0.1}/>
+      
+      <meshStandardMaterial map={headsTexture} metalness={0.6} roughness={0.2} />
+      
+      <meshStandardMaterial map={tailsTexture} metalness={0.6} roughness={0.2} />
     </mesh>
   );
 };
